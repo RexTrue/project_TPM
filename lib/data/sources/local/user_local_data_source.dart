@@ -204,6 +204,9 @@ class UserLocalDataSource {
     if (_useSupabase) {
       try {
         final client = Supabase.instance.client;
+        final prefs = await SharedPreferences.getInstance();
+        final sessionId = prefs.getInt('user_id');
+        final biometricUserId = prefs.getInt('biometric_user_id');
         final entries = _memoryUsers.entries.toList();
         for (final e in entries) {
           final memUser = e.value;
@@ -212,6 +215,12 @@ class UserLocalDataSource {
             if (existing != null && existing.id != null) {
               _memoryUsers.remove(e.key);
               _memoryUsers[existing.id!] = existing;
+              if (sessionId == e.key) {
+                await prefs.setInt('user_id', existing.id!);
+              }
+              if (biometricUserId == e.key) {
+                await prefs.setInt('biometric_user_id', existing.id!);
+              }
               continue;
             }
 
@@ -227,7 +236,7 @@ class UserLocalDataSource {
                       memUser.createdAt ?? DateTime.now().toIso8601String(),
                   'level': memUser.level,
                   'xp': memUser.xp,
-                  'isPremium': memUser.isPremium,
+                  'isPremium': memUser.isPremium ? 1 : 0,
                 })
                 .select()
                 .maybeSingle();
@@ -237,14 +246,23 @@ class UserLocalDataSource {
               final migrated = memUser.copyWith(id: id);
               _memoryUsers.remove(e.key);
               _memoryUsers[id] = migrated;
+              if (sessionId == e.key) {
+                await prefs.setInt('user_id', id);
+              }
+              if (biometricUserId == e.key) {
+                await prefs.setInt('biometric_user_id', id);
+              }
             }
-          } catch (_) {
+          } catch (e) {
+            debugPrint(
+              '[UserLocalDataSource] Supabase migration failed for ${memUser.username}: $e',
+            );
             continue;
           }
         }
         await _saveMemoryToPrefs();
-      } catch (_) {
-        // ignore
+      } catch (e) {
+        debugPrint('[UserLocalDataSource] Supabase migration failed: $e');
       }
       return;
     }
@@ -321,7 +339,7 @@ class UserLocalDataSource {
   Future<UserModel> createUser(UserModel user) async {
     await _ensureMemoryLoaded();
 
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       final id = _memoryIdCounter++;
       final storedUser = user.copyWith(
         id: id,
@@ -356,7 +374,7 @@ class UserLocalDataSource {
           'createdAt': createdAt,
           'level': user.level,
           'xp': user.xp,
-          'isPremium': user.isPremium,
+          'isPremium': user.isPremium ? 1 : 0,
         };
 
         debugPrint(
@@ -424,7 +442,7 @@ class UserLocalDataSource {
   Future<UserModel?> getUserById(int id) async {
     await _ensureMemoryLoaded();
 
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       return _memoryUsers[id];
     }
     // Try Supabase first if available
@@ -485,8 +503,36 @@ class UserLocalDataSource {
       return null;
     }
 
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       return findInMemory();
+    }
+
+    if (_useSupabase) {
+      try {
+        final row = await Supabase.instance.client
+            .from('users')
+            .select()
+            .eq('username', username)
+            .maybeSingle();
+        if (row != null) {
+          final user = UserModel.fromJson(row as Map<String, dynamic>);
+          if (user.id != null) {
+            _memoryUsers[user.id!] = user;
+          }
+          debugPrint(
+            '[UserLocalDataSource] ✓ User found in Supabase: $username (id=${user.id})',
+          );
+          return user;
+        }
+        debugPrint(
+          '[UserLocalDataSource] User not found in Supabase: $username',
+        );
+        return null;
+      } catch (e) {
+        debugPrint(
+          '[UserLocalDataSource] ✗ Supabase getUserByUsername failed: $e',
+        );
+      }
     }
 
     try {
@@ -523,12 +569,26 @@ class UserLocalDataSource {
   Future<void> updateUser(UserModel user) async {
     await _ensureMemoryLoaded();
 
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       if (user.id != null) {
         _memoryUsers[user.id!] = user;
         await _saveMemoryToPrefs();
       }
       return;
+    }
+
+    if (_useSupabase && user.id != null) {
+      try {
+        await Supabase.instance.client
+            .from('users')
+            .update(user.toJson()..remove('id'))
+            .eq('id', user.id!);
+        _memoryUsers[user.id!] = user;
+        await _saveMemoryToPrefs();
+        return;
+      } catch (e) {
+        debugPrint('[UserLocalDataSource] Supabase updateUser failed: $e');
+      }
     }
 
     try {
@@ -551,10 +611,21 @@ class UserLocalDataSource {
   Future<void> deleteUser(int id) async {
     await _ensureMemoryLoaded();
 
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       _memoryUsers.remove(id);
       await _saveMemoryToPrefs();
       return;
+    }
+
+    if (_useSupabase) {
+      try {
+        await Supabase.instance.client.from('users').delete().eq('id', id);
+        _memoryUsers.remove(id);
+        await _saveMemoryToPrefs();
+        return;
+      } catch (e) {
+        debugPrint('[UserLocalDataSource] Supabase deleteUser failed: $e');
+      }
     }
 
     try {
@@ -570,8 +641,22 @@ class UserLocalDataSource {
   Future<List<UserModel>> getAllUsers() async {
     await _ensureMemoryLoaded();
 
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       return _memoryUsers.values.toList();
+    }
+
+    if (_useSupabase) {
+      try {
+        final rows = await Supabase.instance.client.from('users').select();
+        final list = rows is List ? rows : [rows];
+        return list
+            .map(
+              (row) => UserModel.fromJson((row as Map).cast<String, dynamic>()),
+            )
+            .toList();
+      } catch (e) {
+        debugPrint('[UserLocalDataSource] Supabase getAllUsers failed: $e');
+      }
     }
 
     try {
@@ -607,9 +692,22 @@ class UserLocalDataSource {
 
   Future<void> followMentor(int studentId, int mentorId) async {
     final key = '$studentId:$mentorId';
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       _memoryFollows.add(key);
       return;
+    }
+
+    if (_useSupabase) {
+      try {
+        await Supabase.instance.client.from('user_mentor_follows').upsert({
+          'studentId': studentId,
+          'mentorId': mentorId,
+          'followedAt': DateTime.now().toIso8601String(),
+        });
+        return;
+      } catch (e) {
+        debugPrint('[UserLocalDataSource] Supabase followMentor failed: $e');
+      }
     }
 
     try {
@@ -626,9 +724,22 @@ class UserLocalDataSource {
 
   Future<void> unfollowMentor(int studentId, int mentorId) async {
     final key = '$studentId:$mentorId';
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       _memoryFollows.remove(key);
       return;
+    }
+
+    if (_useSupabase) {
+      try {
+        await Supabase.instance.client
+            .from('user_mentor_follows')
+            .delete()
+            .eq('studentId', studentId)
+            .eq('mentorId', mentorId);
+        return;
+      } catch (e) {
+        debugPrint('[UserLocalDataSource] Supabase unfollowMentor failed: $e');
+      }
     }
 
     try {
@@ -644,7 +755,7 @@ class UserLocalDataSource {
   }
 
   Future<List<UserModel>> getFollowedMentors(int studentId) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       final ids = _memoryFollows
           .where((key) => key.startsWith('$studentId:'))
           .map((key) => int.tryParse(key.split(':').last))
@@ -654,6 +765,41 @@ class UserLocalDataSource {
       return users
           .where((user) => user.id != null && ids.contains(user.id))
           .toList();
+    }
+
+    if (_useSupabase) {
+      try {
+        final rows = await Supabase.instance.client
+            .from('user_mentor_follows')
+            .select('users!user_mentor_follows_mentorId_fkey(*)')
+            .eq('studentId', studentId)
+            .order('followedAt', ascending: false);
+        final list = rows is List ? rows : [rows];
+        return list
+            .map((row) => (row as Map)['users'])
+            .whereType<Map>()
+            .map((row) => UserModel.fromJson(row.cast<String, dynamic>()))
+            .toList();
+      } catch (e) {
+        debugPrint(
+          '[UserLocalDataSource] Supabase getFollowedMentors join failed: $e',
+        );
+        try {
+          final follows = await Supabase.instance.client
+              .from('user_mentor_follows')
+              .select()
+              .eq('studentId', studentId)
+              .order('followedAt', ascending: false);
+          final ids = (follows as List)
+              .map((row) => (row as Map)['mentorId'])
+              .whereType<int>()
+              .toList();
+          final users = await getAllUsers();
+          return users
+              .where((user) => user.id != null && ids.contains(user.id))
+              .toList();
+        } catch (_) {}
+      }
     }
 
     try {
@@ -674,7 +820,7 @@ class UserLocalDataSource {
   }
 
   Future<List<UserModel>> getStudentsFollowingMentor(int mentorId) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       final ids = _memoryFollows
           .where((key) => key.endsWith(':$mentorId'))
           .map((key) => int.tryParse(key.split(':').first))
@@ -684,6 +830,28 @@ class UserLocalDataSource {
       return users
           .where((user) => user.id != null && ids.contains(user.id))
           .toList();
+    }
+
+    if (_useSupabase) {
+      try {
+        final follows = await Supabase.instance.client
+            .from('user_mentor_follows')
+            .select()
+            .eq('mentorId', mentorId)
+            .order('followedAt', ascending: false);
+        final ids = (follows as List)
+            .map((row) => (row as Map)['studentId'])
+            .whereType<int>()
+            .toList();
+        final users = await getAllUsers();
+        return users
+            .where((user) => user.id != null && ids.contains(user.id))
+            .toList();
+      } catch (e) {
+        debugPrint(
+          '[UserLocalDataSource] Supabase getStudentsFollowingMentor failed: $e',
+        );
+      }
     }
 
     try {
@@ -704,8 +872,22 @@ class UserLocalDataSource {
   }
 
   Future<int> getFollowerCount(int mentorId) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       return _memoryFollows.where((key) => key.endsWith(':$mentorId')).length;
+    }
+
+    if (_useSupabase) {
+      try {
+        final rows = await Supabase.instance.client
+            .from('user_mentor_follows')
+            .select()
+            .eq('mentorId', mentorId);
+        return rows is List ? rows.length : 0;
+      } catch (e) {
+        debugPrint(
+          '[UserLocalDataSource] Supabase getFollowerCount failed: $e',
+        );
+      }
     }
 
     try {
@@ -747,8 +929,24 @@ class UserLocalDataSource {
   }
 
   Future<bool> isFollowingMentor(int studentId, int mentorId) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       return _memoryFollows.contains('$studentId:$mentorId');
+    }
+
+    if (_useSupabase) {
+      try {
+        final row = await Supabase.instance.client
+            .from('user_mentor_follows')
+            .select()
+            .eq('studentId', studentId)
+            .eq('mentorId', mentorId)
+            .maybeSingle();
+        return row != null;
+      } catch (e) {
+        debugPrint(
+          '[UserLocalDataSource] Supabase isFollowingMentor failed: $e',
+        );
+      }
     }
 
     try {
@@ -774,10 +972,24 @@ class UserLocalDataSource {
       final newXP = max(0, user.xp + xpGained);
       final newLevel = (newXP ~/ 100) + 1;
       final updated = user.copyWith(xp: newXP, level: newLevel);
-      if (kIsWeb) {
+      if (kIsWeb && !_useSupabase) {
         _memoryUsers[userId] = updated;
         await _saveMemoryToPrefs();
         return;
+      }
+
+      if (_useSupabase) {
+        try {
+          await Supabase.instance.client
+              .from('users')
+              .update({'xp': newXP, 'level': newLevel})
+              .eq('id', userId);
+          _memoryUsers[userId] = updated;
+          await _saveMemoryToPrefs();
+          return;
+        } catch (e) {
+          debugPrint('[UserLocalDataSource] Supabase updateUserXP failed: $e');
+        }
       }
 
       try {

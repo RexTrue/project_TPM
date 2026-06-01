@@ -65,7 +65,7 @@ class UserLocationLocalDataSource {
       timestamp: DateTime.now().toIso8601String(),
     );
 
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       _memorySnapshots.removeWhere((e) => e.userId == stored.userId);
       _memorySnapshots.add(stored);
       await _saveMemory();
@@ -99,7 +99,7 @@ class UserLocationLocalDataSource {
   }
 
   Future<List<UserLocationModel>> getLatestSnapshots() async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       await _loadMemory();
       return _dedupeLatest(_memorySnapshots);
     }

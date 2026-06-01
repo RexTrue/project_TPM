@@ -6,6 +6,15 @@ class GeminiService {
   late GenerativeModel _model;
   late ChatSession _chatSession;
   bool _isInitialized = false;
+  String? _apiKey;
+  String _activeModel = ApiConstants.geminiModel;
+
+  static const List<String> _fallbackModels = [
+    ApiConstants.geminiModel,
+    'gemini-2.5-flash',
+    'gemini-2.0-flash',
+    'gemini-1.5-flash-latest',
+  ];
 
   /// Initialize Gemini service
   void initialize({String? apiKey}) {
@@ -16,12 +25,42 @@ class GeminiService {
         return;
       }
 
-      _model = GenerativeModel(model: ApiConstants.geminiModel, apiKey: key);
+      _apiKey = key;
+      _activeModel = ApiConstants.geminiModel;
+      _model = GenerativeModel(model: _activeModel, apiKey: key);
 
       // Initialize chat session untuk multi-turn conversation
       _chatSession = _model.startChat();
       _isInitialized = true;
     }
+  }
+
+  Future<GenerateContentResponse> _sendWithFallback(String message) async {
+    Exception? lastError;
+    final key = _apiKey ?? ApiConstants.geminiApiKey;
+    final tried = <String>{};
+
+    for (final modelName in _fallbackModels) {
+      if (modelName.trim().isEmpty || !tried.add(modelName)) continue;
+      try {
+        if (modelName != _activeModel) {
+          _activeModel = modelName;
+          _model = GenerativeModel(model: _activeModel, apiKey: key);
+          _chatSession = _model.startChat();
+        }
+        return await _chatSession.sendMessage(Content.text(message));
+      } on Exception catch (e) {
+        lastError = e;
+        final lower = e.toString().toLowerCase();
+        final canRetryModel =
+            lower.contains('not found') ||
+            lower.contains('not supported') ||
+            lower.contains('model');
+        if (!canRetryModel) rethrow;
+      }
+    }
+
+    throw lastError ?? Exception('Tidak ada model Gemini yang bisa dipakai.');
   }
 
   /// Send message to Gemini and get response
@@ -35,7 +74,7 @@ class GeminiService {
       }
 
       // System prompt untuk membuat AI lebih fokus sebagai tutor
-      final response = await _chatSession.sendMessage(Content.text(message));
+      final response = await _sendWithFallback(message);
 
       if (response.text != null && response.text!.isNotEmpty) {
         return response.text!;
@@ -44,7 +83,7 @@ class GeminiService {
       return 'Maaf, saya tidak bisa memproses pesan Anda. Silakan coba lagi.';
     } catch (e) {
       _isInitialized = false;
-      return 'Gemini gagal merespons. Pastikan GEMINI_API_KEY valid, koneksi internet aktif, dan model ${ApiConstants.geminiModel} tersedia. Detail: $e';
+      return 'Gemini gagal merespons. Pastikan koneksi internet aktif dan API key masih memiliki kuota. Detail: $e';
     }
   }
 
@@ -66,9 +105,7 @@ class GeminiService {
           ? '$systemContext\n\nPertanyaan: $message'
           : message;
 
-      final response = await _chatSession.sendMessage(
-        Content.text(fullMessage),
-      );
+      final response = await _sendWithFallback(fullMessage);
 
       if (response.text != null && response.text!.isNotEmpty) {
         return response.text!;
@@ -77,7 +114,7 @@ class GeminiService {
       return 'Maaf, saya tidak bisa memproses pesan Anda.';
     } catch (e) {
       _isInitialized = false;
-      return 'Gemini gagal merespons. Pastikan GEMINI_API_KEY valid, koneksi internet aktif, dan model ${ApiConstants.geminiModel} tersedia. Detail: $e';
+      return 'Gemini gagal merespons. Pastikan koneksi internet aktif dan API key masih memiliki kuota. Detail: $e';
     }
   }
 

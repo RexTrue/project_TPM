@@ -12,9 +12,9 @@ class SupabaseService {
   Future<void> init({String? url, String? anonKey}) async {
     if (_initialized) return;
 
-    if (AppConstants.databaseBackend != 'supabase') {
+    if (AppConstants.databaseBackend == 'sqlite') {
       debugPrint(
-        '[SupabaseService] Database backend is ${AppConstants.databaseBackend}. Skipping Supabase initialization.',
+        '[SupabaseService] Database backend is sqlite. Skipping Supabase initialization.',
       );
       return;
     }

@@ -8,7 +8,6 @@
       "deviceId": "29a7fa8e",
       "program": "lib/main.dart",
       "toolArgs": [
-        "--dart-define=GEMINI_API_KEY=AIzaSyAJasFYJhUxzsYc6CxHhLSPopfTZiJxuFI",
         "--dart-define=GEMINI_MODEL=gemini-2.5-flash"
       ]
     },
@@ -19,7 +18,6 @@
       "deviceId": "chrome",
       "program": "lib/main.dart",
       "toolArgs": [
-        "--dart-define=GEMINI_API_KEY=AIzaSyAJasFYJhUxzsYc6CxHhLSPopfTZiJxuFI",
         "--dart-define=GEMINI_MODEL=gemini-2.5-flash",
         "--web-hostname",
         "127.0.0.1",

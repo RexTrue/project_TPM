@@ -22,7 +22,7 @@ class QuestionLocalDataSource {
 
   /// Create question
   Future<QuestionModel> createQuestion(QuestionModel question) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       final id = _memoryIdCounter++;
       final stored = question.copyWith(id: id);
       _memoryQuestions[id] = stored;
@@ -57,7 +57,7 @@ class QuestionLocalDataSource {
 
   /// Get all questions
   Future<List<QuestionModel>> getAllQuestions() async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       return _memoryQuestions.values.toList();
     }
 

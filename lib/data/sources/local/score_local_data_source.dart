@@ -24,7 +24,7 @@ class ScoreLocalDataSource {
 
   /// Create score
   Future<ScoreModel> createScore(ScoreModel score) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       final id = _memoryIdCounter++;
       final stored = score.copyWith(
         id: id,
@@ -74,7 +74,7 @@ class ScoreLocalDataSource {
 
   /// Get scores by user
   Future<List<ScoreModel>> getScoresByUser(int userId) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       return _memoryScores.values.where((s) => s.userId == userId).toList();
     }
 
@@ -120,7 +120,7 @@ class ScoreLocalDataSource {
 
   /// Get top scores (leaderboard)
   Future<List<ScoreModel>> getTopScores(int limit) async {
-    if (kIsWeb) {
+    if (kIsWeb && !_useSupabase) {
       final scores = _memoryScores.values.toList();
       final sorted = List<ScoreModel>.from(scores)
         ..sort(_compareLeaderboardScore);

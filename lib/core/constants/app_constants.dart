@@ -19,11 +19,12 @@ class AppConstants {
     defaultValue: '',
   );
 
-  // Choose backend: 'sqlite' or 'supabase'. Data sources still fall back to SQLite
-  // when Supabase is not initialized.
+  // Choose backend: 'sqlite', 'supabase', or 'auto'.
+  // With 'auto', Supabase is used whenever SUPABASE_URL and SUPABASE_ANON_KEY are configured.
+  // Default is now set to 'supabase' so the remote database is used by default.
   static const String databaseBackend = String.fromEnvironment(
     'DATABASE_BACKEND',
-    defaultValue: 'sqlite',
+    defaultValue: 'supabase',
   );
 
   // Shared Preferences Keys

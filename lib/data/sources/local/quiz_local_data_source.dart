@@ -22,10 +22,6 @@ class QuizLocalDataSource {
 
   Future<int> createQuiz(QuizModel quiz) async {
     try {
-      final count = await _databaseService.getRowCount('quizzes');
-      if (count >= DatabaseService.maxQuizzes) {
-        throw Exception('Quiz limit reached');
-      }
       if (_useSupabase) {
         final client = Supabase.instance.client;
         final createdAt = quiz.createdAt ?? DateTime.now().toIso8601String();
@@ -46,6 +42,11 @@ class QuizLocalDataSource {
         throw Exception('Supabase insert failed');
       }
 
+      final count = await _databaseService.getRowCount('quizzes');
+      if (count >= DatabaseService.maxQuizzes) {
+        throw Exception('Quiz limit reached');
+      }
+
       final db = await _databaseService.database;
       final id = await db.insert('quizzes', {
         'mentorId': quiz.mentorId,
@@ -63,10 +64,6 @@ class QuizLocalDataSource {
 
   Future<int> createQuestion(QuizQuestionModel question) async {
     try {
-      final count = await _databaseService.getRowCount('quiz_questions');
-      if (count >= DatabaseService.maxQuizQuestions) {
-        throw Exception('Quiz questions limit reached');
-      }
       if (_useSupabase) {
         final client = Supabase.instance.client;
         final inserted = await client.from('quiz_questions').insert({
@@ -83,6 +80,11 @@ class QuizLocalDataSource {
           return inserted.first['id'] as int;
         }
         throw Exception('Supabase insert failed');
+      }
+
+      final count = await _databaseService.getRowCount('quiz_questions');
+      if (count >= DatabaseService.maxQuizQuestions) {
+        throw Exception('Quiz questions limit reached');
       }
 
       final db = await _databaseService.database;
@@ -242,10 +244,6 @@ class QuizLocalDataSource {
 
   Future<int> submitQuiz(QuizSubmissionModel submission) async {
     try {
-      final count = await _databaseService.getRowCount('quiz_submissions');
-      if (count >= DatabaseService.maxQuizSubmissions) {
-        throw Exception('Submissions limit reached');
-      }
       if (_useSupabase) {
         final client = Supabase.instance.client;
         final inserted = await client.from('quiz_submissions').insert({
@@ -263,6 +261,11 @@ class QuizLocalDataSource {
           return inserted.first['id'] as int;
         }
         throw Exception('Supabase insert failed');
+      }
+
+      final count = await _databaseService.getRowCount('quiz_submissions');
+      if (count >= DatabaseService.maxQuizSubmissions) {
+        throw Exception('Submissions limit reached');
       }
 
       final db = await _databaseService.database;

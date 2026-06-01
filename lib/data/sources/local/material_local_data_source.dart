@@ -28,13 +28,6 @@ class MaterialLocalDataSource {
         throw Exception('Mentor ID tidak valid');
       }
 
-      final count = await _databaseService.getRowCount('materials');
-      if (count >= DatabaseService.maxMaterials) {
-        throw Exception(
-          'Batas materi sudah tercapai (max ${DatabaseService.maxMaterials})',
-        );
-      }
-
       if (_useSupabase) {
         final client = Supabase.instance.client;
         final createdAt =
@@ -59,6 +52,13 @@ class MaterialLocalDataSource {
           return inserted['id'] as int;
         }
         throw Exception('Supabase insert returned null');
+      }
+
+      final count = await _databaseService.getRowCount('materials');
+      if (count >= DatabaseService.maxMaterials) {
+        throw Exception(
+          'Batas materi sudah tercapai (max ${DatabaseService.maxMaterials})',
+        );
       }
 
       final db = await _databaseService.database;
