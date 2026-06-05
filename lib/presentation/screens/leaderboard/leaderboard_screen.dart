@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_map/flutter_map.dart';
+import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
 import '../../../data/models/mentor_leaderboard_entry.dart';
+import '../../../data/models/user_location_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../navigation/navigation.dart';
+import '../../providers/location_provider.dart';
 import '../../providers/student_provider.dart';
 import '../../widgets/custom_widgets.dart';
 
@@ -25,9 +29,15 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
   Future<_LeaderboardData> _loadData() async {
     final provider = context.read<StudentProvider>();
+    final locationProvider = context.read<LocationProvider>();
     final students = await provider.getStudentLevelLeaderboard();
     final mentors = await provider.getMentorLeaderboard();
-    return _LeaderboardData(students: students, mentors: mentors);
+    await locationProvider.loadLeaderboardSnapshots();
+    return _LeaderboardData(
+      students: students,
+      mentors: mentors,
+      locations: locationProvider.leaderboardSnapshots,
+    );
   }
 
   Future<void> _refresh() async {
@@ -40,7 +50,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   @override
   Widget build(BuildContext context) {
     return DefaultTabController(
-      length: 2,
+      length: 3,
       child: Scaffold(
         appBar: AppBar(
           title: const Text('Leaderboard'),
@@ -48,6 +58,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
             tabs: [
               Tab(text: 'Student Level'),
               Tab(text: 'Mentor'),
+              Tab(text: 'Peta LBS'),
             ],
           ),
         ),
@@ -60,7 +71,11 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
 
             final data =
                 snapshot.data ??
-                const _LeaderboardData(students: [], mentors: []);
+                const _LeaderboardData(
+                  students: [],
+                  mentors: [],
+                  locations: [],
+                );
             return TabBarView(
               children: [
                 _StudentLevelLeaderboard(
@@ -68,9 +83,162 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                   onRefresh: _refresh,
                 ),
                 _MentorLeaderboard(mentors: data.mentors, onRefresh: _refresh),
+                _LocationLeaderboardMap(
+                  locations: data.locations,
+                  onRefresh: _refresh,
+                ),
               ],
             );
           },
+        ),
+      ),
+    );
+  }
+}
+
+class _LocationLeaderboardMap extends StatelessWidget {
+  final List<UserLocationModel> locations;
+  final Future<void> Function() onRefresh;
+
+  const _LocationLeaderboardMap({
+    required this.locations,
+    required this.onRefresh,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final center = _mapCenter(locations);
+    return Stack(
+      children: [
+        FlutterMap(
+          options: MapOptions(initialCenter: center, initialZoom: 10),
+          children: [
+            TileLayer(
+              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+              userAgentPackageName: 'com.example.tugas_akhir_mobile',
+            ),
+            MarkerLayer(
+              markers: locations.map((location) {
+                return Marker(
+                  point: LatLng(location.latitude, location.longitude),
+                  width: 96,
+                  height: 68,
+                  child: GestureDetector(
+                    onTap: () => _showLocation(context, location),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(
+                          Icons.location_on,
+                          color: Color(0xFFDC2626),
+                          size: 36,
+                        ),
+                        Container(
+                          constraints: const BoxConstraints(maxWidth: 96),
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 6,
+                            vertical: 2,
+                          ),
+                          decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(4),
+                            boxShadow: const [
+                              BoxShadow(color: Colors.black26, blurRadius: 3),
+                            ],
+                          ),
+                          child: Text(
+                            location.userName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
+        ),
+        Positioned(
+          top: 12,
+          left: 12,
+          right: 12,
+          child: Material(
+            color: Colors.white,
+            elevation: 2,
+            borderRadius: BorderRadius.circular(6),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Text(
+                'Lokasi ditampilkan sebagai area perkiraan untuk menjaga privasi.',
+                style: TextStyle(fontSize: 12),
+              ),
+            ),
+          ),
+        ),
+        if (locations.isEmpty)
+          Positioned(
+            top: 72,
+            left: 12,
+            right: 12,
+            child: Material(
+              color: Colors.white,
+              elevation: 2,
+              borderRadius: BorderRadius.circular(6),
+              child: const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                child: Text(
+                  'Belum ada lokasi user. Marker akan muncul setelah user mengizinkan dan mengambil lokasi.',
+                  style: TextStyle(fontSize: 12),
+                ),
+              ),
+            ),
+          ),
+        Positioned(
+          right: 10,
+          bottom: 8,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Padding(
+              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+              child: Text(
+                '© OpenStreetMap contributors',
+                style: TextStyle(fontSize: 10),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  LatLng _mapCenter(List<UserLocationModel> locations) {
+    if (locations.isEmpty) {
+      return const LatLng(-2.5489, 118.0149);
+    }
+
+    final latitude =
+        locations.fold<double>(0, (sum, item) => sum + item.latitude) /
+        locations.length;
+    final longitude =
+        locations.fold<double>(0, (sum, item) => sum + item.longitude) /
+        locations.length;
+    return LatLng(latitude, longitude);
+  }
+
+  void _showLocation(BuildContext context, UserLocationModel location) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          '${location.userName} - ${location.locationName} - ${location.points} XP',
         ),
       ),
     );
@@ -206,6 +374,11 @@ class _RankBadge extends StatelessWidget {
 class _LeaderboardData {
   final List<UserModel> students;
   final List<MentorLeaderboardEntry> mentors;
+  final List<UserLocationModel> locations;
 
-  const _LeaderboardData({required this.students, required this.mentors});
+  const _LeaderboardData({
+    required this.students,
+    required this.mentors,
+    required this.locations,
+  });
 }

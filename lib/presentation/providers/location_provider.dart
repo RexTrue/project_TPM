@@ -29,12 +29,14 @@ class LocationProvider extends ChangeNotifier {
       return 'Lokasi belum tersedia';
     }
 
+    final approximateLatitude = _approximateCoordinate(_position!.latitude);
+    final approximateLongitude = _approximateCoordinate(_position!.longitude);
     final resolved = _resolvedLocationName;
     if (resolved != null && resolved.isNotEmpty) {
-      return '$resolved (${_position!.latitude.toStringAsFixed(4)}, ${_position!.longitude.toStringAsFixed(4)})';
+      return '$resolved (${approximateLatitude.toStringAsFixed(2)}, ${approximateLongitude.toStringAsFixed(2)})';
     }
 
-    return '${_position!.latitude.toStringAsFixed(4)}, ${_position!.longitude.toStringAsFixed(4)}';
+    return '${approximateLatitude.toStringAsFixed(2)}, ${approximateLongitude.toStringAsFixed(2)}';
   }
 
   Future<void> fetchLocation({
@@ -56,12 +58,16 @@ class LocationProvider extends ChangeNotifier {
       _resolvedLocationName = await _resolveLocationName(_position!);
 
       if (userId != null && userName != null) {
+        final approximateLatitude = _approximateCoordinate(_position!.latitude);
+        final approximateLongitude = _approximateCoordinate(
+          _position!.longitude,
+        );
         await _locationRepository.saveSnapshot(
           UserLocationModel(
             userId: userId,
             userName: userName,
-            latitude: _position!.latitude,
-            longitude: _position!.longitude,
+            latitude: approximateLatitude,
+            longitude: approximateLongitude,
             locationName: _resolvedLocationName ?? 'Unknown area',
             points: points,
           ),
@@ -86,12 +92,20 @@ class LocationProvider extends ChangeNotifier {
     }
   }
 
+  Future<bool> requestPermission() {
+    return _locationService.requestPermission();
+  }
+
   Future<void> openLocationSettings() {
     return _locationService.openLocationSettings();
   }
 
   Future<void> openAppSettings() {
     return _locationService.openAppSettings();
+  }
+
+  double _approximateCoordinate(double coordinate) {
+    return (coordinate * 100).roundToDouble() / 100;
   }
 
   Future<String?> _resolveLocationName(Position position) async {

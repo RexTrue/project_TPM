@@ -10,12 +10,15 @@ class NotificationService {
     if (kIsWeb) {
       return;
     }
+    if (_initialized) {
+      return;
+    }
 
     const android = AndroidInitializationSettings('@mipmap/ic_launcher');
-    const settings = InitializationSettings(android: android);
+    const ios = DarwinInitializationSettings();
+    const settings = InitializationSettings(android: android, iOS: ios);
     try {
       await _plugin.initialize(settings: settings);
-      await _requestPermission();
       _initialized = true;
     } catch (e) {
       debugPrint('[NotificationService] Notification init skipped: $e');
@@ -31,6 +34,16 @@ class NotificationService {
       channelName: 'Daily Reminder',
       channelDescription: 'Pengingat belajar harian EduFun',
     );
+  }
+
+  Future<bool> requestPermission() async {
+    if (kIsWeb) {
+      return false;
+    }
+    if (!_initialized) {
+      await initialize();
+    }
+    return _requestPermission();
   }
 
   Future<bool> showAppNotification({
@@ -78,16 +91,29 @@ class NotificationService {
         .resolvePlatformSpecificImplementation<
           AndroidFlutterLocalNotificationsPlugin
         >();
-    if (androidPlugin == null) {
-      return true;
+    if (androidPlugin != null) {
+      final enabled = await androidPlugin.areNotificationsEnabled();
+      if (enabled ?? false) {
+        return true;
+      }
+
+      final granted = await androidPlugin.requestNotificationsPermission();
+      return granted ?? false;
     }
 
-    final enabled = await androidPlugin.areNotificationsEnabled();
-    if (enabled ?? false) {
-      return true;
+    final iosPlugin = _plugin
+        .resolvePlatformSpecificImplementation<
+          IOSFlutterLocalNotificationsPlugin
+        >();
+    if (iosPlugin != null) {
+      final granted = await iosPlugin.requestPermissions(
+        alert: true,
+        badge: true,
+        sound: true,
+      );
+      return granted ?? false;
     }
 
-    final granted = await androidPlugin.requestNotificationsPermission();
-    return granted ?? false;
+    return true;
   }
 }

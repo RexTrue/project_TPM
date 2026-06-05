@@ -2,14 +2,9 @@ import 'package:flutter/foundation.dart';
 import 'package:geolocator/geolocator.dart';
 
 class LocationService {
-  Future<bool> ensurePermission() async {
+  Future<bool> requestPermission() async {
     if (kIsWeb) {
       return true;
-    }
-
-    final serviceEnabled = await Geolocator.isLocationServiceEnabled();
-    if (!serviceEnabled) {
-      return false;
     }
 
     var permission = await Geolocator.checkPermission();
@@ -23,6 +18,16 @@ class LocationService {
 
     return permission == LocationPermission.whileInUse ||
         permission == LocationPermission.always;
+  }
+
+  Future<bool> ensurePermission() async {
+    if (!await requestPermission()) {
+      return false;
+    }
+    if (kIsWeb) {
+      return true;
+    }
+    return Geolocator.isLocationServiceEnabled();
   }
 
   Future<Position?> getCurrentPosition() async {

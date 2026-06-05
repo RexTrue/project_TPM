@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
+import '../../../notifications/notification_service.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/location_provider.dart';
 import '../../navigation/navigation.dart';
 
 /// Splash Screen
@@ -21,17 +23,22 @@ class _SplashScreenState extends State<SplashScreen> {
   Future<void> _checkLoginStatus() async {
     await Future.delayed(const Duration(seconds: 2));
 
-    if (mounted) {
-      final authProvider = context.read<AuthProvider>();
-      await authProvider.checkLoginStatus();
+    if (!mounted) return;
 
-      if (mounted) {
-        if (authProvider.isLoggedIn) {
-          Navigator.of(context).pushReplacementNamed(AppNavigation.home);
-        } else {
-          Navigator.of(context).pushReplacementNamed(AppNavigation.login);
-        }
-      }
+    final notificationService = context.read<NotificationService>();
+    final locationProvider = context.read<LocationProvider>();
+    final authProvider = context.read<AuthProvider>();
+
+    await notificationService.requestPermission();
+    await locationProvider.requestPermission();
+    await authProvider.checkLoginStatus();
+
+    if (!mounted) return;
+
+    if (authProvider.isLoggedIn) {
+      Navigator.of(context).pushReplacementNamed(AppNavigation.home);
+    } else {
+      Navigator.of(context).pushReplacementNamed(AppNavigation.login);
     }
   }
 
