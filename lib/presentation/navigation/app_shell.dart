@@ -5,6 +5,7 @@ import '../providers/auth_provider.dart';
 import '../screens/feedback/feedback_screen.dart';
 import '../screens/game/compass_hunt_screen.dart';
 import '../screens/game/quiz_minigame_screen.dart';
+import '../screens/game/tebak_gambar/tebak_gambar_screen.dart';
 import '../screens/home/home_screen.dart';
 import '../screens/profile/profile_screen.dart';
 import 'navigation.dart';
@@ -124,6 +125,19 @@ class _GameHubScreen extends StatelessWidget {
                 Navigator.push(
                   context,
                   MaterialPageRoute(builder: (_) => const CompassHuntScreen()),
+                );
+              },
+            ),
+          ),
+          Card(
+            child: ListTile(
+              leading: const Icon(Icons.image),
+              title: const Text('Tebak Gambar'),
+              subtitle: const Text('Tebak kata dari gambar emoji'),
+              onTap: () {
+                Navigator.push(
+                  context,
+                  MaterialPageRoute(builder: (_) => const TebakGambarScreen()),
                 );
               },
             ),

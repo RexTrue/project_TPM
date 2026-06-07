@@ -6,6 +6,7 @@ import 'package:provider/provider.dart';
 import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../providers/auth_provider.dart';
+import '../../providers/badge_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/question_provider.dart';
 import '../../providers/score_provider.dart';
@@ -149,6 +150,12 @@ class _QuizMinigameScreenState extends State<QuizMinigameScreen>
         userId: auth.currentUser!.id,
         userName: auth.currentUser!.username,
         points: auth.currentUser!.xp,
+      );
+      await context.read<BadgeProvider>().checkAndUnlock(
+        userId: auth.currentUser!.id!,
+        gamePlayed: true,
+        xp: auth.currentUser!.xp,
+        level: auth.currentUser!.level,
       );
     }
 

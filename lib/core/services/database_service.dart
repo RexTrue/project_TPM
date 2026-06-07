@@ -40,7 +40,7 @@ class DatabaseService {
 
         final db = await openDatabase(
           path,
-          version: 9,
+          version: 10,
           onCreate: _onCreate,
           onUpgrade: _onUpgrade,
           onOpen: _onOpen,
@@ -244,6 +244,19 @@ class DatabaseService {
         )
       ''');
       debugPrint('[DatabaseService] ✓ Created table: quiz_submissions');
+
+      await db.execute('''
+        CREATE TABLE feedbacks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId INTEGER,
+          rating INTEGER NOT NULL,
+          message TEXT NOT NULL,
+          category TEXT,
+          createdAt TEXT NOT NULL,
+          FOREIGN KEY (userId) REFERENCES users(id)
+        )
+      ''');
+      debugPrint('[DatabaseService] ✓ Created table: feedbacks');
 
       debugPrint('[DatabaseService] ✓ All tables created successfully');
     } catch (e) {
@@ -489,6 +502,22 @@ class DatabaseService {
       } catch (e) {
         debugPrint('[DatabaseService] Could not add about column to users: $e');
       }
+    }
+
+    if (oldVersion < 10) {
+      debugPrint('[DatabaseService] Upgrading to version 10...');
+      await db.execute('''
+        CREATE TABLE IF NOT EXISTS feedbacks (
+          id INTEGER PRIMARY KEY AUTOINCREMENT,
+          userId INTEGER,
+          rating INTEGER NOT NULL,
+          message TEXT NOT NULL,
+          category TEXT,
+          createdAt TEXT NOT NULL,
+          FOREIGN KEY (userId) REFERENCES users(id)
+        )
+      ''');
+      debugPrint('[DatabaseService] ✓ Created feedbacks table');
     }
 
     debugPrint('[DatabaseService] ✓ Database upgrade completed');

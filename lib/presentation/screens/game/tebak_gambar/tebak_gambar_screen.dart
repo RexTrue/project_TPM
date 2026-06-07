@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
 import '../../../widgets/custom_widgets.dart';
+import '../../../providers/auth_provider.dart';
+import '../../../providers/badge_provider.dart';
 
 /// Tebak Gambar (Guess Image) Screen
 class TebakGambarScreen extends StatefulWidget {
@@ -110,7 +114,19 @@ class _TebakGambarScreenState extends State<TebakGambarScreen> {
     );
   }
 
-  void _showGameOverDialog() {
+  Future<void> _showGameOverDialog() async {
+    final auth = context.read<AuthProvider>();
+    final userId = auth.currentUser?.id;
+    if (userId != null) {
+      await context.read<BadgeProvider>().checkAndUnlock(
+        userId: userId,
+        gamePlayed: true,
+        xp: auth.currentUser?.xp,
+        level: auth.currentUser?.level,
+      );
+    }
+
+    if (!mounted) return;
     showDialog(
       context: context,
       builder: (context) => AlertDialog(

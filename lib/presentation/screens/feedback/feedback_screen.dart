@@ -1,4 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
+
+import '../../../data/models/feedback_model.dart';
+import '../../../data/repositories/feedback_repository.dart';
+import '../../providers/auth_provider.dart';
+import '../../providers/badge_provider.dart';
 import '../../widgets/custom_widgets.dart';
 
 /// Feedback Screen
@@ -12,11 +18,78 @@ class FeedbackScreen extends StatefulWidget {
 class _FeedbackScreenState extends State<FeedbackScreen> {
   final _feedbackController = TextEditingController();
   int _rating = 5;
+  String? _selectedCategory;
+  bool _isSubmitting = false;
+
+  static const _categories = [
+    'Bug Report',
+    'Feature Request',
+    'Improvement',
+    'General',
+  ];
 
   @override
   void dispose() {
     _feedbackController.dispose();
     super.dispose();
+  }
+
+  Future<void> _submitFeedback() async {
+    if (_feedbackController.text.trim().isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Silakan isi masukan Anda')),
+      );
+      return;
+    }
+
+    setState(() => _isSubmitting = true);
+
+    try {
+      final auth = context.read<AuthProvider>();
+      final feedbackRepository = context.read<FeedbackRepository>();
+      final userId = auth.currentUser?.id;
+
+      await feedbackRepository.createFeedback(
+        FeedbackModel(
+          userId: userId,
+          rating: _rating,
+          message: _feedbackController.text.trim(),
+          category: _selectedCategory,
+          createdAt: DateTime.now().toIso8601String(),
+        ),
+      );
+
+      if (userId != null) {
+        final unlocked = await context.read<BadgeProvider>().checkAndUnlock(
+          userId: userId,
+          feedbackSent: true,
+          xp: auth.currentUser?.xp,
+          level: auth.currentUser?.level,
+        );
+
+        if (unlocked.isNotEmpty && mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Badge baru: ${unlocked.join(', ')}')),
+          );
+        }
+      }
+
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Terima kasih atas masukan Anda! 🙏')),
+      );
+
+      _feedbackController.clear();
+      setState(() => _selectedCategory = null);
+      Navigator.pop(context);
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Gagal mengirim masukan: $e')),
+      );
+    } finally {
+      if (mounted) setState(() => _isSubmitting = false);
+    }
   }
 
   @override
@@ -30,14 +103,12 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               const Text(
-                'Help us improve EduFun!',
+                'Bantu kami meningkatkan EduFun!',
                 style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 24),
-
-              // Rating
               const Text(
-                'How would you rate your experience?',
+                'Bagaimana pengalaman Anda?',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
@@ -46,9 +117,7 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 children: [
                   ...List.generate(5, (index) {
                     return IconButton(
-                      onPressed: () {
-                        setState(() => _rating = index + 1);
-                      },
+                      onPressed: () => setState(() => _rating = index + 1),
                       icon: Icon(
                         Icons.star,
                         size: 40,
@@ -61,88 +130,47 @@ class _FeedbackScreenState extends State<FeedbackScreen> {
                 ],
               ),
               const SizedBox(height: 24),
-
-              // Feedback Text
               const Text(
-                'Your feedback:',
+                'Masukan Anda:',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               CustomTextField(
-                label: 'Tell us what you think...',
+                label: 'Ceritakan pendapat Anda...',
                 controller: _feedbackController,
                 maxLines: 6,
               ),
               const SizedBox(height: 24),
-
-              // Categories
               const Text(
-                'Category (optional):',
+                'Kategori (opsional):',
                 style: TextStyle(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 12),
               Wrap(
                 spacing: 8,
-                children: [
-                  _CategoryChip(label: 'Bug Report'),
-                  _CategoryChip(label: 'Feature Request'),
-                  _CategoryChip(label: 'Improvement'),
-                  _CategoryChip(label: 'General'),
-                ],
+                children: _categories.map((category) {
+                  final selected = _selectedCategory == category;
+                  return FilterChip(
+                    label: Text(category),
+                    selected: selected,
+                    onSelected: (value) {
+                      setState(() {
+                        _selectedCategory = value ? category : null;
+                      });
+                    },
+                  );
+                }).toList(),
               ),
               const SizedBox(height: 32),
-
-              // Submit Button
               CustomButton(
-                text: 'Send Feedback',
-                onPressed: () {
-                  if (_feedbackController.text.isEmpty) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      const SnackBar(
-                        content: Text('Please enter your feedback'),
-                      ),
-                    );
-                    return;
-                  }
-
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Thank you for your feedback! 🙏'),
-                    ),
-                  );
-
-                  _feedbackController.clear();
-                  Navigator.pop(context);
-                },
+                text: 'Kirim Masukan',
+                isLoading: _isSubmitting,
+                onPressed: _submitFeedback,
               ),
             ],
           ),
         ),
       ),
-    );
-  }
-}
-
-class _CategoryChip extends StatefulWidget {
-  final String label;
-
-  const _CategoryChip({required this.label});
-
-  @override
-  State<_CategoryChip> createState() => _CategoryChipState();
-}
-
-class _CategoryChipState extends State<_CategoryChip> {
-  bool _selected = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return FilterChip(
-      label: Text(widget.label),
-      selected: _selected,
-      onSelected: (selected) {
-        setState(() => _selected = selected);
-      },
     );
   }
 }

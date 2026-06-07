@@ -26,4 +26,8 @@ class AppNavigation {
   static const String studentQuizzes = '/student/quizzes';
   static const String studentTakeQuiz = '/student/take-quiz';
   static const String mentorSearch = '/student/mentors';
+  static const String settings = '/settings';
+  static const String helpSupport = '/help-support';
+  static const String about = '/about';
+  static const String badges = '/badges';
 }

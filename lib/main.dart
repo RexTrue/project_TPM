@@ -15,6 +15,10 @@ import 'data/repositories/question_repository.dart';
 import 'data/repositories/score_repository.dart';
 import 'data/repositories/user_location_repository.dart';
 import 'data/repositories/chat_repository.dart';
+import 'data/repositories/badge_repository.dart';
+import 'data/repositories/feedback_repository.dart';
+import 'data/sources/local/badge_local_data_source.dart';
+import 'data/sources/local/feedback_local_data_source.dart';
 import 'data/sources/local/user_local_data_source.dart';
 import 'data/sources/local/material_local_data_source.dart';
 import 'data/sources/local/quiz_local_data_source.dart';
@@ -30,6 +34,7 @@ import 'presentation/providers/theme_provider.dart';
 import 'presentation/providers/location_provider.dart';
 import 'presentation/providers/mentor_provider.dart';
 import 'presentation/providers/student_provider.dart';
+import 'presentation/providers/badge_provider.dart';
 import 'presentation/screens/splash/splash_screen.dart';
 import 'presentation/screens/auth/login_screen.dart';
 import 'presentation/screens/auth/register_screen.dart';
@@ -52,6 +57,11 @@ import 'presentation/screens/student/student_materials_screen.dart';
 import 'presentation/screens/student/student_quiz_list_screen.dart';
 import 'presentation/screens/student/student_take_quiz_screen.dart';
 import 'presentation/screens/student/mentor_search_screen.dart';
+import 'presentation/screens/profile/settings_screen.dart';
+import 'presentation/screens/profile/help_support_screen.dart';
+import 'presentation/screens/profile/about_screen.dart';
+import 'presentation/screens/profile/badges_screen.dart';
+import 'presentation/screens/game/tebak_gambar/tebak_gambar_screen.dart';
 import 'presentation/navigation/navigation.dart';
 import 'presentation/navigation/app_shell.dart';
 import 'notifications/notification_service.dart';
@@ -147,6 +157,10 @@ class MyApp extends StatelessWidget {
       userLocationLocalDataSource,
     );
     final chatRepository = ChatRepository(chatRemoteDataSource);
+    final badgeLocalDataSource = BadgeLocalDataSource(databaseService);
+    final feedbackLocalDataSource = FeedbackLocalDataSource(databaseService);
+    final badgeRepository = BadgeRepository(badgeLocalDataSource);
+    final feedbackRepository = FeedbackRepository(feedbackLocalDataSource);
     final locationService = LocationService();
     final biometricService = BiometricService();
     final notificationService = NotificationService();
@@ -176,6 +190,8 @@ class MyApp extends StatelessWidget {
         ChangeNotifierProvider(create: (_) => ScoreProvider(scoreRepository)),
         ChangeNotifierProvider(create: (_) => ChatProvider(chatRepository)),
         ChangeNotifierProvider(create: (_) => ThemeProvider()),
+        ChangeNotifierProvider(create: (_) => BadgeProvider(badgeRepository)),
+        Provider<FeedbackRepository>.value(value: feedbackRepository),
         ChangeNotifierProvider(
           create: (_) =>
               LocationProvider(locationService, userLocationRepository),
@@ -211,6 +227,8 @@ class MyApp extends StatelessWidget {
               AppNavigation.quizMinigame: (context) =>
                   const QuizMinigameScreen(),
               AppNavigation.compassHunt: (context) => const CompassHuntScreen(),
+              AppNavigation.tebakGambar: (context) =>
+                  const TebakGambarScreen(),
               AppNavigation.membership: (context) => const MembershipScreen(),
               AppNavigation.mentorMembership: (context) {
                 final args =
@@ -242,6 +260,11 @@ class MyApp extends StatelessWidget {
                   const UpdatesNotificationScreen(),
               AppNavigation.leaderboard: (context) => const LeaderboardScreen(),
               AppNavigation.feedback: (context) => const FeedbackScreen(),
+              AppNavigation.settings: (context) => const SettingsScreen(),
+              AppNavigation.helpSupport: (context) =>
+                  const HelpSupportScreen(),
+              AppNavigation.about: (context) => const AboutScreen(),
+              AppNavigation.badges: (context) => const BadgesScreen(),
               AppNavigation.mentorUpload: (context) =>
                   const MentorUploadScreen(),
               AppNavigation.mentorMaterials: (context) =>

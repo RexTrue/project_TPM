@@ -8,8 +8,10 @@ import 'package:sensors_plus/sensors_plus.dart';
 
 import '../../../data/models/quiz_question_model.dart';
 import '../../providers/auth_provider.dart';
+import '../../providers/badge_provider.dart';
 import '../../providers/score_provider.dart';
 import '../../providers/student_provider.dart';
+import '../../widgets/custom_widgets.dart';
 
 class StudentTakeQuizScreen extends StatefulWidget {
   final int quizId;
@@ -25,6 +27,7 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
   late final Future<List<QuizQuestionModel>> _questionsFuture;
   late final AnimationController _runner;
   StreamSubscription<AccelerometerEvent>? _accelerometerSub;
+  final _essayController = TextEditingController();
 
   List<QuizQuestionModel> _questions = [];
   List<String> _laneAnswers = [];
@@ -56,6 +59,7 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
 
     _accelerometerSub = accelerometerEvents.listen((event) {
       if (_resolvingGate || _questions.isEmpty) return;
+      if (_isEssay(_questions[_currentIndex])) return;
       final tilt = event.x.abs() < 0.35 ? 0.0 : -event.x * 0.045;
       if (tilt == 0.0) return;
       final next = (_runnerPosition + tilt)
@@ -71,8 +75,11 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
   void dispose() {
     _accelerometerSub?.cancel();
     _runner.dispose();
+    _essayController.dispose();
     super.dispose();
   }
+
+  bool _isEssay(QuizQuestionModel question) => question.type == 'essay';
 
   List<String> _decodeOptions(String raw) {
     try {
@@ -84,18 +91,30 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
     return raw.split('|').where((item) => item.trim().isNotEmpty).toList();
   }
 
+  List<String> _rubricKeywords(String rubric) {
+    return rubric
+        .split(RegExp(r'[,;\n]| dan '))
+        .map((item) => item.trim().toLowerCase())
+        .where((item) => item.length >= 2)
+        .toList();
+  }
+
+  int _gradeEssayPercent(String answer, String rubric) {
+    final keywords = _rubricKeywords(rubric);
+    if (keywords.isEmpty) {
+      return answer.trim().length >= 10 ? 100 : 0;
+    }
+    final normalized = answer.toLowerCase();
+    final matched = keywords.where((k) => normalized.contains(k)).length;
+    return ((matched / keywords.length) * 100).round();
+  }
+
   void _prepareLaneAnswers() {
     if (_questions.isEmpty) return;
     final question = _questions[_currentIndex];
-    final options = question.type == 'essay'
-        ? <String>[
-            question.correctAnswer,
-            'Butuh review ulang',
-            'Jawaban belum tepat',
-            'Perlu contoh lain',
-          ]
-        : _decodeOptions(question.options);
+    if (_isEssay(question)) return;
 
+    final options = _decodeOptions(question.options);
     final shuffled = List<String>.from(options)..shuffle();
     while (shuffled.length < _laneCount) {
       shuffled.add(question.correctAnswer);
@@ -113,23 +132,7 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
     return rounded;
   }
 
-  Future<void> _resolveGate() async {
-    if (_resolvingGate || _submitted) return;
-    _resolvingGate = true;
-    _runner.stop();
-
-    final question = _questions[_currentIndex];
-    final key = question.id ?? question.hashCode;
-    final selectedLane = _selectedLane();
-    final chosen = _laneAnswers[selectedLane];
-    _answers[key] = chosen;
-    final correct = chosen == question.correctAnswer;
-    if (correct) _correctCount++;
-
-    setState(() {});
-    await Future.delayed(const Duration(milliseconds: 650));
-    if (!mounted) return;
-
+  Future<void> _advanceToNextQuestion() async {
     final isLast = _currentIndex == _questions.length - 1;
     if (isLast) {
       await _submit();
@@ -142,7 +145,54 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
       _resolvingGate = false;
       _prepareLaneAnswers();
     });
-    _runner.forward(from: 0);
+
+    if (!_isEssay(_questions[_currentIndex])) {
+      _runner.forward(from: 0);
+    }
+  }
+
+  Future<void> _resolveGate() async {
+    if (_resolvingGate || _submitted) return;
+    if (_isEssay(_questions[_currentIndex])) return;
+    _resolvingGate = true;
+    _runner.stop();
+
+    final question = _questions[_currentIndex];
+    final key = question.id ?? question.hashCode;
+    final selectedLane = _selectedLane();
+    final chosen = _laneAnswers[selectedLane];
+    _answers[key] = chosen;
+    if (chosen == question.correctAnswer) _correctCount++;
+
+    setState(() {});
+    await Future.delayed(const Duration(milliseconds: 650));
+    if (!mounted) return;
+    await _advanceToNextQuestion();
+  }
+
+  Future<void> _submitEssayAnswer() async {
+    if (_resolvingGate || _submitted) return;
+    final text = _essayController.text.trim();
+    if (text.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Silakan tulis jawaban essay Anda')),
+      );
+      return;
+    }
+
+    _resolvingGate = true;
+    final question = _questions[_currentIndex];
+    final key = question.id ?? question.hashCode;
+    _answers[key] = text;
+
+    final percent = _gradeEssayPercent(text, question.correctAnswer);
+    if (percent >= 50) _correctCount++;
+
+    _essayController.clear();
+    setState(() {});
+    await Future.delayed(const Duration(milliseconds: 400));
+    if (!mounted) return;
+    await _advanceToNextQuestion();
   }
 
   int _score100() {
@@ -176,13 +226,31 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
     await scoreProvider.saveScore(studentId, score, 100, 'Sensor Quiz');
     await auth.addXp(score);
 
+    final unlocked = await context.read<BadgeProvider>().checkAndUnlock(
+      userId: studentId,
+      quizCompleted: true,
+      quizScore: score,
+      xp: auth.currentUser?.xp,
+      level: auth.currentUser?.level,
+    );
+
     if (!mounted) return;
     showDialog(
       context: context,
       barrierDismissible: false,
       builder: (_) => AlertDialog(
         title: const Text('Quiz selesai'),
-        content: Text('Skor otomatis: $score/100'),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text('Skor: $score/100'),
+            if (unlocked.isNotEmpty) ...[
+              const SizedBox(height: 12),
+              Text('Badge baru: ${unlocked.join(', ')}'),
+            ],
+          ],
+        ),
         actions: [
           TextButton(
             onPressed: () {
@@ -201,14 +269,75 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
     _questions = questions;
     _prepareLaneAnswers();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _runner.forward(from: 0);
+      if (mounted && !_isEssay(_questions[_currentIndex])) {
+        _runner.forward(from: 0);
+      }
     });
+  }
+
+  Widget _buildEssayView(QuizQuestionModel question, int score) {
+    final keywords = _rubricKeywords(question.correctAnswer);
+
+    return SingleChildScrollView(
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text('Soal ${_currentIndex + 1}/${_questions.length}'),
+              Text(
+                '$score/100',
+                style: const TextStyle(fontWeight: FontWeight.bold),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            question.questionText,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 16),
+          const Text(
+            'Rubrik penilaian:',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+              color: Colors.indigo.shade50,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Text(
+              keywords.isEmpty
+                  ? question.correctAnswer
+                  : keywords.map((k) => '• $k').join('\n'),
+            ),
+          ),
+          const SizedBox(height: 16),
+          CustomTextField(
+            label: 'Tulis jawaban essay Anda...',
+            controller: _essayController,
+            maxLines: 8,
+          ),
+          const SizedBox(height: 24),
+          CustomButton(
+            text: _currentIndex == _questions.length - 1
+                ? 'Kirim Jawaban'
+                : 'Lanjut',
+            onPressed: _resolvingGate ? () {} : _submitEssayAnswer,
+          ),
+        ],
+      ),
+    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('Quiz Runner')),
+      appBar: AppBar(title: const Text('Kerjakan Quiz')),
       body: FutureBuilder<List<QuizQuestionModel>>(
         future: _questionsFuture,
         builder: (context, snapshot) {
@@ -222,8 +351,13 @@ class _StudentTakeQuizScreenState extends State<StudentTakeQuizScreen>
           _startIfNeeded(questions);
 
           final question = _questions[_currentIndex];
-          final gateProgress = Curves.easeIn.transform(_runner.value);
           final score = _score100();
+
+          if (_isEssay(question)) {
+            return _buildEssayView(question, score);
+          }
+
+          final gateProgress = Curves.easeIn.transform(_runner.value);
           final selectedLane = _selectedLane();
 
           return Container(
