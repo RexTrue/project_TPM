@@ -5,8 +5,10 @@ Proyek ini sudah mendukung penyimpanan data ke Supabase secara remote.
 ## Langkah-langkah
 
 1. Buka Supabase project Anda.
-2. Pergi ke SQL Editor dan jalankan `supabase_schema.sql` dari root proyek.
-3. Jalankan aplikasi dengan Supabase backend:
+2. Project baru: jalankan `supabase_schema.sql` di SQL Editor.
+3. Project lama: jalankan `supabase_migration_v10.sql` (menambah tabel `feedbacks` + index badge).
+   - Otomatis via psql: isi `SUPABASE_DB_URL` di `.env`, lalu `.\run_supabase_migration.ps1`
+4. Jalankan aplikasi dengan Supabase backend:
    ```powershell
    .\run_supabase.ps1
    ```
