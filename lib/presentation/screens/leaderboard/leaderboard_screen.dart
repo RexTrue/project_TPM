@@ -3,10 +3,12 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:provider/provider.dart';
 
+import '../../../core/utils/map_utils.dart';
 import '../../../data/models/mentor_leaderboard_entry.dart';
 import '../../../data/models/user_location_model.dart';
 import '../../../data/models/user_model.dart';
 import '../../navigation/navigation.dart';
+import '../../providers/auth_provider.dart';
 import '../../providers/location_provider.dart';
 import '../../providers/student_provider.dart';
 import '../../widgets/custom_widgets.dart';
@@ -36,7 +38,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
     return _LeaderboardData(
       students: students,
       mentors: mentors,
-      locations: locationProvider.leaderboardSnapshots,
+      locations: filterValidLocations(locationProvider.leaderboardSnapshots),
     );
   }
 
@@ -45,6 +47,19 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
       _future = _loadData();
     });
     await _future;
+  }
+
+  Future<void> _refreshMapWithLocation() async {
+    final auth = context.read<AuthProvider>();
+    final user = auth.currentUser;
+    if (user?.id != null) {
+      await context.read<LocationProvider>().fetchLocation(
+        userId: user!.id,
+        userName: user.username,
+        points: user.xp,
+      );
+    }
+    await _refresh();
   }
 
   @override
@@ -85,7 +100,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
                 _MentorLeaderboard(mentors: data.mentors, onRefresh: _refresh),
                 _LocationLeaderboardMap(
                   locations: data.locations,
-                  onRefresh: _refresh,
+                  onRefresh: _refreshMapWithLocation,
                 ),
               ],
             );
@@ -96,7 +111,7 @@ class _LeaderboardScreenState extends State<LeaderboardScreen> {
   }
 }
 
-class _LocationLeaderboardMap extends StatelessWidget {
+class _LocationLeaderboardMap extends StatefulWidget {
   final List<UserLocationModel> locations;
   final Future<void> Function() onRefresh;
 
@@ -106,63 +121,182 @@ class _LocationLeaderboardMap extends StatelessWidget {
   });
 
   @override
+  State<_LocationLeaderboardMap> createState() =>
+      _LocationLeaderboardMapState();
+}
+
+class _LocationLeaderboardMapState extends State<_LocationLeaderboardMap>
+    with AutomaticKeepAliveClientMixin {
+  final MapController _mapController = MapController();
+  bool _isRefreshing = false;
+
+  @override
+  bool get wantKeepAlive => true;
+
+  @override
+  void dispose() {
+    _mapController.dispose();
+    super.dispose();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _fitMapToLocations(widget.locations);
+  }
+
+  @override
+  void didUpdateWidget(covariant _LocationLeaderboardMap oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.locations != widget.locations) {
+      _fitMapToLocations(widget.locations);
+    }
+  }
+
+  void _fitMapToLocations(List<UserLocationModel> locations) {
+    final valid = filterValidLocations(locations);
+    if (valid.isEmpty) return;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      try {
+        if (valid.length == 1) {
+          _mapController.move(
+            LatLng(valid.first.latitude, valid.first.longitude),
+            12,
+          );
+          return;
+        }
+
+        final bounds = LatLngBounds.fromPoints(
+          valid.map((item) => LatLng(item.latitude, item.longitude)).toList(),
+        );
+        _mapController.fitCamera(
+          CameraFit.bounds(
+            bounds: bounds,
+            padding: const EdgeInsets.all(48),
+          ),
+        );
+      } catch (_) {
+        // Abaikan error fit kamera agar peta tetap tampil.
+      }
+    });
+  }
+
+  Future<void> _handleRefresh() async {
+    setState(() => _isRefreshing = true);
+    try {
+      await widget.onRefresh();
+    } finally {
+      if (mounted) setState(() => _isRefreshing = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final center = _mapCenter(locations);
+    super.build(context);
+    final locations = filterValidLocations(widget.locations);
+    final center = resolveMapCenter(locations);
+
     return Stack(
       children: [
-        FlutterMap(
-          options: MapOptions(initialCenter: center, initialZoom: 10),
-          children: [
-            TileLayer(
-              urlTemplate: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-              userAgentPackageName: 'com.example.tugas_akhir_mobile',
-            ),
-            MarkerLayer(
-              markers: locations.map((location) {
-                return Marker(
-                  point: LatLng(location.latitude, location.longitude),
-                  width: 96,
-                  height: 68,
-                  child: GestureDetector(
-                    onTap: () => _showLocation(context, location),
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        const Icon(
-                          Icons.location_on,
-                          color: Color(0xFFDC2626),
-                          size: 36,
-                        ),
-                        Container(
-                          constraints: const BoxConstraints(maxWidth: 96),
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 6,
-                            vertical: 2,
+        RefreshIndicator(
+          onRefresh: _handleRefresh,
+          child: ListView(
+            physics: const AlwaysScrollableScrollPhysics(),
+            children: [
+              SizedBox(
+                height: MediaQuery.sizeOf(context).height - 160,
+                child: FlutterMap(
+                  mapController: _mapController,
+                  options: MapOptions(
+                    initialCenter: center,
+                    initialZoom: locations.isEmpty ? 5 : 10,
+                    minZoom: 3,
+                    maxZoom: 18,
+                    interactionOptions: const InteractionOptions(
+                      flags: InteractiveFlag.all,
+                    ),
+                  ),
+                  children: [
+                    TileLayer(
+                      urlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      userAgentPackageName: 'com.example.tugas_akhir_mobile',
+                      maxNativeZoom: 19,
+                      errorTileCallback: (tile, error, stackTrace) {
+                        debugPrint(
+                          '[LeaderboardMap] Tile error z=${tile.coordinates.z}: $error',
+                        );
+                      },
+                    ),
+                    MarkerLayer(
+                      markers: locations.map((location) {
+                        return Marker(
+                          point: LatLng(
+                            location.latitude,
+                            location.longitude,
                           ),
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(4),
-                            boxShadow: const [
-                              BoxShadow(color: Colors.black26, blurRadius: 3),
-                            ],
-                          ),
-                          child: Text(
-                            location.userName,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
+                          width: 96,
+                          height: 68,
+                          alignment: Alignment.bottomCenter,
+                          child: GestureDetector(
+                            onTap: () => _showLocation(context, location),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                const Icon(
+                                  Icons.location_on,
+                                  color: Color(0xFFDC2626),
+                                  size: 36,
+                                ),
+                                Container(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 96,
+                                  ),
+                                  padding: const EdgeInsets.symmetric(
+                                    horizontal: 6,
+                                    vertical: 2,
+                                  ),
+                                  decoration: BoxDecoration(
+                                    color: Colors.white,
+                                    borderRadius: BorderRadius.circular(4),
+                                    boxShadow: const [
+                                      BoxShadow(
+                                        color: Colors.black26,
+                                        blurRadius: 3,
+                                      ),
+                                    ],
+                                  ),
+                                  child: Text(
+                                    location.userName,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
+                        );
+                      }).toList(),
+                    ),
+                    RichAttributionWidget(
+                      attributions: [
+                        TextSourceAttribution(
+                          'OpenStreetMap contributors',
+                          onTap: () {},
                         ),
                       ],
                     ),
-                  ),
-                );
-              }).toList(),
-            ),
-          ],
+                  ],
+                ),
+              ),
+            ],
+          ),
         ),
         Positioned(
           top: 12,
@@ -190,48 +324,52 @@ class _LocationLeaderboardMap extends StatelessWidget {
               color: Colors.white,
               elevation: 2,
               borderRadius: BorderRadius.circular(6),
-              child: const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                child: Text(
-                  'Belum ada lokasi user. Marker akan muncul setelah user mengizinkan dan mengambil lokasi.',
-                  style: TextStyle(fontSize: 12),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 12,
+                  vertical: 10,
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    const Text(
+                      'Belum ada lokasi user. Tekan tombol di bawah untuk mengambil lokasi Anda.',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                    const SizedBox(height: 10),
+                    FilledButton.icon(
+                      onPressed: _isRefreshing ? null : _handleRefresh,
+                      icon: _isRefreshing
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.my_location, size: 18),
+                      label: const Text('Ambil Lokasi Saya'),
+                    ),
+                  ],
                 ),
               ),
             ),
           ),
         Positioned(
-          right: 10,
-          bottom: 8,
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: Colors.white,
-              borderRadius: BorderRadius.circular(4),
-            ),
-            child: const Padding(
-              padding: EdgeInsets.symmetric(horizontal: 6, vertical: 3),
-              child: Text(
-                '© OpenStreetMap contributors',
-                style: TextStyle(fontSize: 10),
-              ),
-            ),
+          right: 12,
+          bottom: 12,
+          child: FloatingActionButton.small(
+            heroTag: 'leaderboard_map_refresh',
+            onPressed: _isRefreshing ? null : _handleRefresh,
+            child: _isRefreshing
+                ? const SizedBox(
+                    width: 18,
+                    height: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.refresh),
           ),
         ),
       ],
     );
-  }
-
-  LatLng _mapCenter(List<UserLocationModel> locations) {
-    if (locations.isEmpty) {
-      return const LatLng(-2.5489, 118.0149);
-    }
-
-    final latitude =
-        locations.fold<double>(0, (sum, item) => sum + item.latitude) /
-        locations.length;
-    final longitude =
-        locations.fold<double>(0, (sum, item) => sum + item.longitude) /
-        locations.length;
-    return LatLng(latitude, longitude);
   }
 
   void _showLocation(BuildContext context, UserLocationModel location) {

@@ -6,6 +6,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/services/database_service.dart';
 import '../../../core/services/supabase_service.dart';
+import '../../../core/utils/map_utils.dart';
 import '../../models/user_location_model.dart';
 
 bool _useSupabaseLocationGlobal() {
@@ -61,6 +62,10 @@ class UserLocationLocalDataSource {
   }
 
   Future<UserLocationModel> saveSnapshot(UserLocationModel location) async {
+    if (!isValidCoordinate(location.latitude, location.longitude)) {
+      throw Exception('Koordinat lokasi tidak valid');
+    }
+
     final stored = location.copyWith(
       timestamp: DateTime.now().toIso8601String(),
     );
@@ -77,7 +82,7 @@ class UserLocationLocalDataSource {
         final client = Supabase.instance.client;
         final inserted = await client
             .from('user_locations')
-            .insert(stored.toJson())
+            .insert(stored.toInsertMap())
             .select()
             .maybeSingle();
         if (inserted != null) {
@@ -88,7 +93,7 @@ class UserLocationLocalDataSource {
       }
 
       final db = await _databaseService.database;
-      final id = await db.insert('user_locations', stored.toJson());
+      final id = await db.insert('user_locations', stored.toInsertMap());
       return stored.copyWith(id: id);
     } catch (e) {
       _memorySnapshots.removeWhere((e) => e.userId == stored.userId);
@@ -138,6 +143,9 @@ class UserLocationLocalDataSource {
   List<UserLocationModel> _dedupeLatest(List<UserLocationModel> snapshots) {
     final latestByUser = <int, UserLocationModel>{};
     for (final snapshot in snapshots) {
+      if (!isValidCoordinate(snapshot.latitude, snapshot.longitude)) {
+        continue;
+      }
       latestByUser.putIfAbsent(snapshot.userId, () => snapshot);
     }
     final list = latestByUser.values.toList();

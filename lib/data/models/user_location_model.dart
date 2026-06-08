@@ -33,17 +33,36 @@ class UserLocationModel {
     };
   }
 
+  /// Data untuk insert database tanpa field auto-increment.
+  Map<String, dynamic> toInsertMap() {
+    return {
+      'userId': userId,
+      'userName': userName,
+      'latitude': latitude,
+      'longitude': longitude,
+      'locationName': locationName,
+      'points': points,
+      'timestamp': timestamp,
+    };
+  }
+
   factory UserLocationModel.fromJson(Map<String, dynamic> json) {
     return UserLocationModel(
       id: json['id'],
-      userId: json['userId'],
-      userName: json['userName'] ?? 'Unknown',
-      latitude: (json['latitude'] as num).toDouble(),
-      longitude: (json['longitude'] as num).toDouble(),
-      locationName: json['locationName'] ?? 'Unknown area',
-      points: json['points'] ?? 0,
-      timestamp: json['timestamp'],
+      userId: json['userId'] ?? 0,
+      userName: json['userName']?.toString() ?? 'Unknown',
+      latitude: _readCoordinate(json['latitude']),
+      longitude: _readCoordinate(json['longitude']),
+      locationName: json['locationName']?.toString() ?? 'Unknown area',
+      points: (json['points'] as num?)?.toInt() ?? 0,
+      timestamp: json['timestamp']?.toString(),
     );
+  }
+
+  static double _readCoordinate(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value) ?? 0;
+    return 0;
   }
 
   UserLocationModel copyWith({
